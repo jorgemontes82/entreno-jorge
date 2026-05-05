@@ -15,7 +15,7 @@
       var canvas = document.createElement('canvas');
       canvas.width = 180; canvas.height = 180;
       var ctx = canvas.getContext('2d');
-      // Background
+      // Gradient background
       var grad = ctx.createLinearGradient(0,0,180,180);
       grad.addColorStop(0,'#1d72e8');
       grad.addColorStop(1,'#56a0f5');
@@ -33,11 +33,12 @@
       ctx.quadraticCurveTo(0,0,r,0);
       ctx.closePath();
       ctx.fill();
-      // Emoji
-      ctx.font = '110px serif';
+      // Letters JM in white
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 82px -apple-system, Helvetica, Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('🏋️', 90, 95);
+      ctx.fillText('JM', 90, 95);
       // Set as apple touch icon
       document.getElementById('apple-touch-icon-link').href = canvas.toDataURL('image/png');
     })();
