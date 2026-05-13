@@ -266,7 +266,7 @@ const C = {
 };
 
 const sty = {
-  header: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 18px", background:"linear-gradient(135deg,#1d72e8,#56a0f5)", position:"sticky", top:0, zIndex:100, boxShadow:"0 4px 20px rgba(29,114,232,0.25)" },
+  header: { display:"flex", flexDirection:"column", padding:"10px 14px 8px", background:"linear-gradient(135deg,#1d72e8,#56a0f5)", position:"sticky", top:0, zIndex:100, boxShadow:"0 4px 20px rgba(29,114,232,0.25)", gap:8 },
   navBtn: { background:"rgba(255,255,255,0.15)", border:"none", color:"rgba(255,255,255,0.8)", fontFamily:"inherit", fontSize:11, fontWeight:700, padding:"6px 10px", cursor:"pointer", borderRadius:20, whiteSpace:"nowrap" },
   navBtnActive: { background:"rgba(255,255,255,0.95)", color:C.accent },
   banner: { background:C.accentL, borderBottom:`1px solid ${C.border}`, padding:"5px 18px", display:"flex", alignItems:"center", gap:8 },
@@ -486,20 +486,23 @@ function AppMain({ session }) {
     <div style={{minHeight:"100vh", background:C.bg, color:C.text}}>
       <GlobalStyles />
       <header style={sty.header}>
-        <div style={{display:"flex", alignItems:"center", gap:8, minWidth:0}}>
-          <span style={{fontSize:20}}>🏋️</span>
-          <span style={{fontSize:13, fontWeight:800, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-            Entreno de Jorge Montes
-          </span>
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+          <div style={{display:"flex", alignItems:"center", gap:8}}>
+            <span style={{fontSize:18}}>🏋️</span>
+            <span style={{fontSize:13, fontWeight:800, color:"#fff"}}>Entreno de Jorge Montes</span>
+          </div>
+          <div style={{display:"flex", alignItems:"center", gap:6}}>
+            <span title={syncStatus} style={{color:syncColor, fontSize:13, fontWeight:700}}>{syncIcon}</span>
+            <button onClick={handleLogout} style={{...sty.navBtn, fontSize:13}} title="Cerrar sesión">⏻</button>
+          </div>
         </div>
-        <nav style={{display:"flex", gap:3, flexShrink:0, alignItems:"center"}}>
-          <span title={syncStatus} style={{color:syncColor, fontSize:13, marginRight:6, fontWeight:700}}>{syncIcon}</span>
+        <nav style={{display:"flex", gap:4}}>
           {[{id:"today",label:"HOY"},{id:"history",label:"HISTORIAL"},{id:"config",label:"CONFIG"}].map(n => (
-            <button key={n.id} onClick={()=>setView(n.id)} style={{...sty.navBtn,...(view===n.id?sty.navBtnActive:{})}}>
+            <button key={n.id} onClick={()=>setView(n.id)}
+              style={{...sty.navBtn, flex:1, textAlign:"center", ...(view===n.id?sty.navBtnActive:{})}}>
               {n.label}
             </button>
           ))}
-          <button onClick={handleLogout} style={{...sty.navBtn, marginLeft:4}} title="Cerrar sesión">⏻</button>
         </nav>
       </header>
       <div style={sty.banner}>
