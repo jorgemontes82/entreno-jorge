@@ -62,7 +62,7 @@ const { useState, useEffect, useRef } = React;
 
 const SUPABASE_URL = "https://hpetlxhxongnqzoulaqk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_trb1CUHQLkxnynZhAnZeqg_FJ4l4OM9";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const FEELINGS = [
   { value: 1, label: "Muy difícil", emoji: "😤", color: "#ef4444" },
@@ -154,16 +154,16 @@ function useSupabaseData(session) {
     setLoading(true);
     try {
       const [progsRes, logsRes, settRes] = await Promise.all([
-        supabase.from("programs").select("*"),
-        supabase.from("logs").select("*"),
-        supabase.from("user_settings").select("*").maybeSingle(),
+        sb.from("programs").select("*"),
+        sb.from("logs").select("*"),
+        sb.from("user_settings").select("*").maybeSingle(),
       ]);
       let progs = (progsRes.data || []).map(p => ({
         id: p.id, name: p.name, description: p.description||"", notes: p.notes||"",
         createdAt: p.created_at, days: p.days||[],
       }));
       if (progs.length === 0) {
-        await supabase.from("programs").insert({
+        await sb.from("programs").insert({
           id: DEFAULT_PROGRAM.id, name: DEFAULT_PROGRAM.name,
           description: DEFAULT_PROGRAM.description, notes: DEFAULT_PROGRAM.notes,
           created_at: DEFAULT_PROGRAM.createdAt, days: DEFAULT_PROGRAM.days,
@@ -178,7 +178,7 @@ function useSupabaseData(session) {
       setLogsState(logsObj);
       let apId = settRes.data?.active_prog_id || progs[0]?.id;
       if (!settRes.data) {
-        await supabase.from("user_settings").insert({ active_prog_id: apId });
+        await sb.from("user_settings").insert({ active_prog_id: apId });
       }
       setActiveProgIdState(apId);
     } catch (e) { console.error("Load error", e); }
@@ -204,7 +204,7 @@ function useSupabaseData(session) {
   function setActiveProgId(id) {
     setActiveProgIdState(id);
     setSyncStatus("syncing");
-    supabase.from("user_settings")
+    sb.from("user_settings")
       .upsert({ user_id: session.user.id, active_prog_id: id, updated_at: new Date().toISOString() })
       .then(({ error }) => setSyncStatus(error ? "error" : "idle"));
   }
@@ -220,12 +220,12 @@ function useSupabaseData(session) {
       if (kind === "programs") {
         const nextIds = new Set(next.map(p => p.id));
         for (const p of prev) if (!nextIds.has(p.id)) {
-          await supabase.from("programs").delete().eq("id", p.id);
+          await sb.from("programs").delete().eq("id", p.id);
         }
         for (const p of next) {
           const old = prev.find(x => x.id === p.id);
           if (!old || JSON.stringify(old) !== JSON.stringify(p)) {
-            await supabase.from("programs").upsert({
+            await sb.from("programs").upsert({
               id: p.id, name: p.name, description: p.description||"", notes: p.notes||"",
               created_at: p.createdAt, days: p.days||[],
               updated_at: new Date().toISOString(),
@@ -235,12 +235,12 @@ function useSupabaseData(session) {
       } else if (kind === "logs") {
         const nextKeys = new Set(Object.keys(next));
         for (const k of Object.keys(prev)) if (!nextKeys.has(k)) {
-          await supabase.from("logs").delete().eq("date_key", k);
+          await sb.from("logs").delete().eq("date_key", k);
         }
         for (const [k, v] of Object.entries(next)) {
           const old = prev[k];
           if (!old || JSON.stringify(old) !== JSON.stringify(v)) {
-            await supabase.from("logs").upsert({
+            await sb.from("logs").upsert({
               date_key: k, prog_id: v.progId, exercises: v.exercises||{}, rest: v.rest||null,
               updated_at: new Date().toISOString(),
             });
@@ -318,7 +318,7 @@ function LoginScreen() {
   async function handleLogin(e) {
     e.preventDefault();
     setErr(""); setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) setErr(error.message);
     setLoading(false);
   }
@@ -430,10 +430,10 @@ function App() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    sb.auth.getSession().then(({ data: { session } }) => {
       setSession(session); setAuthReady(true);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
     return () => subscription.unsubscribe();
@@ -476,7 +476,7 @@ function AppMain({ session }) {
     setPrograms(prev => prev.map(p => p.id === id ? {...p,...patch} : p));
   }
   async function handleLogout() {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
   }
 
   const syncIcon = syncStatus==="syncing"?"⟳":syncStatus==="error"?"⚠":"✓";
