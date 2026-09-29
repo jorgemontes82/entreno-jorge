@@ -531,6 +531,7 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
   const exerciseLogs = todayLog.exercises || {};
   const restLog = todayLog.rest || null;
 
+  // Last session's sets for each exercise
   const lastWeights = {};
   Object.entries(logs)
     .filter(([d]) => d < dateKey)
@@ -542,9 +543,51 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
       });
     });
 
+  // All-time max per exercise (excluding today) for PR detection
+  const allTimeMax = {};
+  Object.entries(logs).filter(([d]) => d < dateKey).forEach(([,log]) => {
+    Object.entries(log.exercises||{}).forEach(([exId,exLog]) => {
+      (exLog.sets||[]).forEach(s => {
+        const kg = parseFloat(s.kg);
+        if (!isNaN(kg) && kg > 0 && (!allTimeMax[exId] || kg > allTimeMax[exId]))
+          allTimeMax[exId] = kg;
+      });
+    });
+  });
+
   function setExLog(exId, patch) {
     saveLog({ exercises: {...exerciseLogs, [exId]: {...(exerciseLogs[exId]||{}), ...patch}} });
   }
+
+  function copyLastSession() {
+    const newExercises = {...exerciseLogs};
+    let copied = 0;
+    activeDay.exercises.forEach(ex => {
+      if (lastWeights[ex.id]) {
+        newExercises[ex.id] = {
+          ...(newExercises[ex.id] || {}),
+          sets: lastWeights[ex.id].map(s => ({kg: s.kg||"", reps: s.reps||""}))
+        };
+        copied++;
+      }
+    });
+    if (copied === 0) { alert("No hay sesión anterior con estos ejercicios."); return; }
+    if (!confirm(`¿Copiar pesos y reps de la última sesión en ${copied} ejercicios?`)) return;
+    saveLog({exercises: newExercises});
+  }
+
+  // Total volume
+  const totalVolume = activeDay?.exercises.reduce((total, ex) => {
+    const log = exerciseLogs[ex.id];
+    if (!log?.sets) return total;
+    return total + log.sets.reduce((s, set) => {
+      const kg = parseFloat(set.kg) || 0;
+      const reps = parseFloat(set.reps) || 0;
+      return s + kg * reps;
+    }, 0);
+  }, 0) || 0;
+
+  const hasAnyLast = activeDay?.exercises.some(ex => lastWeights[ex.id]);
 
   return (
     <div>
@@ -564,12 +607,24 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
           </button>
         ))}
       </div>
+      {hasAnyLast && (
+        <button onClick={copyLastSession} style={{...sty.exportBtn, width:"100%", padding:"9px", marginBottom:10, fontSize:12, background:C.tealL, borderColor:C.teal, color:C.teal, fontWeight:800}}>
+          ⧉ Copiar pesos de la sesión anterior
+        </button>
+      )}
       <RestCard restLog={restLog} saveLog={saveLog} />
       {activeDay?.exercises.map(ex => (
         <ExerciseCard key={ex.id} exercise={ex}
           exLog={exerciseLogs[ex.id]||{}} setExLog={patch => setExLog(ex.id, patch)}
-          lastSets={lastWeights[ex.id]||null} />
+          lastSets={lastWeights[ex.id]||null}
+          allTimeMax={allTimeMax[ex.id]||0} />
       ))}
+      {totalVolume > 0 && (
+        <div style={{...sty.card, background:"linear-gradient(135deg,#e0edff,#f0f6ff)", border:`1.5px solid ${C.accent}`, padding:"14px 16px", marginTop:14, textAlign:"center"}}>
+          <p style={{fontSize:10, color:C.muted, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", margin:"0 0 4px 0"}}>📊 Volumen total de la sesión</p>
+          <p style={{fontSize:22, fontWeight:800, color:C.accent, margin:0}}>{totalVolume.toLocaleString("es-ES")} kg</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -694,12 +749,14 @@ function RestTimer() {
   );
 }
 
-function ExerciseCard({ exercise, exLog, setExLog, lastSets }) {
+function ExerciseCard({ exercise, exLog, setExLog, lastSets, allTimeMax }) {
   const [open, setOpen] = useState(false);
   const sets = exLog.sets || Array.from({length:exercise.sets}, () => ({kg:"", reps:""}));
   const done = sets.some(s => s.kg !== "");
   const feeling = exLog.feeling;
   const lastMax = lastSets ? Math.max(...lastSets.map(s => parseFloat(s.kg)||0)) : null;
+  const currentMax = Math.max(...sets.map(s => parseFloat(s.kg)||0), 0);
+  const isPR = allTimeMax > 0 && currentMax > allTimeMax;
 
   function updateSet(i, field, val) {
     setExLog({sets: sets.map((s,idx) => idx===i ? {...s,[field]:val} : s)});
@@ -711,10 +768,13 @@ function ExerciseCard({ exercise, exLog, setExLog, lastSets }) {
         <div style={{display:"flex", alignItems:"center", flexWrap:"wrap", gap:4}}>
           <span style={{fontSize:14, fontWeight:700}}>{exercise.name}</span>
           <span style={{fontSize:10, color:C.accent, background:C.accentL, padding:"2px 7px", borderRadius:20, fontWeight:700}}>
-            {exercise.sets}×{exercise.reps}
+            {exercise.sets}×{exercise.reps}{exercise.rir ? ` · RIR ${exercise.rir}` : ""}
           </span>
           {lastMax > 0 && !done && (
             <span style={{fontSize:10, color:C.teal, background:C.tealL, padding:"2px 7px", borderRadius:20, fontWeight:700}}>↑ {lastMax}kg</span>
+          )}
+          {isPR && (
+            <span style={{fontSize:10, background:"linear-gradient(135deg,#fbbf24,#f97316)", color:"#fff", padding:"2px 8px", borderRadius:20, fontWeight:800, boxShadow:"0 2px 6px rgba(251,191,36,0.4)"}}>🏆 PR {currentMax}kg</span>
           )}
         </div>
         <div style={{display:"flex", alignItems:"center", gap:5, flexShrink:0}}>
@@ -724,6 +784,12 @@ function ExerciseCard({ exercise, exLog, setExLog, lastSets }) {
       </button>
       {open && (
         <div style={{padding:"4px 14px 14px"}}>
+          {exercise.tip && (
+            <div style={{background:"#fffbeb", border:`1.5px solid #fbbf24`, borderRadius:8, padding:"8px 11px", marginBottom:10, display:"flex", gap:7, alignItems:"flex-start"}}>
+              <span style={{fontSize:14, flexShrink:0}}>💡</span>
+              <span style={{fontSize:12, color:"#78350f", fontWeight:600, lineHeight:1.4}}>{exercise.tip}</span>
+            </div>
+          )}
           {lastSets?.some(s => s.kg) && (
             <div style={{display:"flex", alignItems:"center", flexWrap:"wrap", gap:5, background:C.accentL, borderRadius:8, padding:"6px 10px", marginBottom:10}}>
               <span style={{fontSize:10, color:C.accent, fontWeight:800}}>Última sesión →</span>
@@ -1053,6 +1119,7 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
   const [newExName, setNewExName] = useState("");
   const [newExSets, setNewExSets] = useState("3");
   const [newExReps, setNewExReps] = useState("8-12");
+  const [newExRir, setNewExRir] = useState("");
   const [configDayId, setConfigDayId] = useState(null);
 
   const configProg = programs.find(p=>p.id===configProgId)||programs[0];
@@ -1101,9 +1168,9 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
   }
   function addExercise() {
     if (!newExName.trim()||!activeDay) return;
-    const ex = {id:uid(),name:newExName.trim(),sets:parseInt(newExSets)||3,reps:newExReps.trim()||"8-12"};
+    const ex = {id:uid(),name:newExName.trim(),sets:parseInt(newExSets)||3,reps:newExReps.trim()||"8-12",rir:newExRir.trim()};
     setPrograms(prev=>prev.map(p=>p.id===configProg.id?{...p,days:p.days.map(d=>d.id===activeDay.id?{...d,exercises:[...d.exercises,ex]}:d)}:p));
-    setNewExName("");
+    setNewExName(""); setNewExRir("");
   }
   function removeExercise(exId) {
     setPrograms(prev=>prev.map(p=>p.id===configProg.id?{...p,days:p.days.map(d=>d.id===activeDay.id?{...d,exercises:d.exercises.filter(e=>e.id!==exId)}:d)}:p));
@@ -1186,22 +1253,31 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
               </p>
               {activeDay.exercises.length===0 && <p style={{color:C.muted,fontSize:12,marginBottom:7,fontWeight:600}}>Sin ejercicios todavía.</p>}
               {activeDay.exercises.map(ex => (
-                <div key={ex.id} style={{display:"flex",gap:6,alignItems:"center",marginBottom:7,flexWrap:"wrap"}}>
-                  <input value={ex.name} style={{...sty.input,flex:3}} onChange={e=>updateExercise(ex.id,"name",e.target.value)} />
-                  <input type="number" min="1" value={ex.sets} title="Series"
-                    style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"sets",parseInt(e.target.value))} />
-                  <input value={ex.reps} placeholder="reps"
-                    style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"reps",e.target.value)} />
-                  <button onClick={()=>removeExercise(ex.id)} style={sty.removeBtn}>✕</button>
+                <div key={ex.id} style={{marginBottom:10, paddingBottom:8, borderBottom:`1px dashed ${C.border}`}}>
+                  <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
+                    <input value={ex.name} style={{...sty.input,flex:3}} onChange={e=>updateExercise(ex.id,"name",e.target.value)} />
+                    <input type="number" min="1" value={ex.sets} title="Series"
+                      style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"sets",parseInt(e.target.value))} />
+                    <input value={ex.reps} placeholder="reps" title="Repeticiones"
+                      style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"reps",e.target.value)} />
+                    <input value={ex.rir||""} placeholder="RIR" title="Reps in reserve"
+                      style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"rir",e.target.value)} />
+                    <button onClick={()=>removeExercise(ex.id)} style={sty.removeBtn}>✕</button>
+                  </div>
+                  <input value={ex.tip||""} placeholder="💡 Recordatorio técnico (opcional)…"
+                    style={{...sty.input, fontSize:12, fontWeight:500}}
+                    onChange={e=>updateExercise(ex.id,"tip",e.target.value)} />
                 </div>
               ))}
               <div style={{display:"flex",gap:6,marginTop:8}}>
                 <input value={newExName} onChange={e=>setNewExName(e.target.value)} placeholder="Nuevo ejercicio…"
                   style={{...sty.input,flex:3}} onKeyDown={e=>e.key==="Enter"&&addExercise()} />
                 <input type="number" min="1" value={newExSets} onChange={e=>setNewExSets(e.target.value)}
-                  style={{...sty.input,flex:1,textAlign:"center"}} title="Series" />
+                  style={{...sty.input,flex:1,textAlign:"center"}} title="Series" placeholder="ser" />
                 <input value={newExReps} onChange={e=>setNewExReps(e.target.value)}
                   style={{...sty.input,flex:1,textAlign:"center"}} placeholder="reps" />
+                <input value={newExRir} onChange={e=>setNewExRir(e.target.value)}
+                  style={{...sty.input,flex:1,textAlign:"center"}} placeholder="RIR" title="Reps in reserve" />
                 <button onClick={addExercise} style={sty.addBtn}>+</button>
               </div>
             </div>
