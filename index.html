@@ -559,23 +559,6 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
     saveLog({ exercises: {...exerciseLogs, [exId]: {...(exerciseLogs[exId]||{}), ...patch}} });
   }
 
-  function copyLastSession() {
-    const newExercises = {...exerciseLogs};
-    let copied = 0;
-    activeDay.exercises.forEach(ex => {
-      if (lastWeights[ex.id]) {
-        newExercises[ex.id] = {
-          ...(newExercises[ex.id] || {}),
-          sets: lastWeights[ex.id].map(s => ({kg: s.kg||"", reps: s.reps||""}))
-        };
-        copied++;
-      }
-    });
-    if (copied === 0) { alert("No hay sesión anterior con estos ejercicios."); return; }
-    if (!confirm(`¿Copiar pesos y reps de la última sesión en ${copied} ejercicios?`)) return;
-    saveLog({exercises: newExercises});
-  }
-
   // Total volume
   const totalVolume = activeDay?.exercises.reduce((total, ex) => {
     const log = exerciseLogs[ex.id];
@@ -586,8 +569,6 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
       return s + kg * reps;
     }, 0);
   }, 0) || 0;
-
-  const hasAnyLast = activeDay?.exercises.some(ex => lastWeights[ex.id]);
 
   return (
     <div>
@@ -607,11 +588,6 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
           </button>
         ))}
       </div>
-      {hasAnyLast && (
-        <button onClick={copyLastSession} style={{...sty.exportBtn, width:"100%", padding:"9px", marginBottom:10, fontSize:12, background:C.tealL, borderColor:C.teal, color:C.teal, fontWeight:800}}>
-          ⧉ Copiar pesos de la sesión anterior
-        </button>
-      )}
       <RestCard restLog={restLog} saveLog={saveLog} />
       {activeDay?.exercises.map(ex => (
         <ExerciseCard key={ex.id} exercise={ex}
@@ -798,6 +774,12 @@ function ExerciseCard({ exercise, exLog, setExLog, lastSets, allTimeMax }) {
                   {s.kg}kg×{s.reps||"?"}
                 </span>
               ))}
+              <button onClick={() => {
+                if (!confirm("¿Copiar estos pesos y reps?")) return;
+                setExLog({sets: lastSets.map(s => ({kg: s.kg||"", reps: s.reps||""}))});
+              }} style={{marginLeft:"auto", background:C.accent, color:"#fff", border:"none", borderRadius:6, fontFamily:"inherit", fontSize:10, fontWeight:800, padding:"3px 8px", cursor:"pointer"}}>
+                ⧉ Copiar
+              </button>
             </div>
           )}
           <RestTimer />
