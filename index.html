@@ -638,10 +638,10 @@ function RestCard({ restLog, saveLog }) {
   );
 }
 
-function RestTimer() {
+function RestTimer({ defaultTarget = 90 }) {
   const [seconds, setSeconds] = useState(0);
   const [running, setRunning] = useState(false);
-  const [target, setTarget] = useState(90);
+  const [target, setTarget] = useState(defaultTarget);
   const intervalRef = useRef(null);
   const audioRef = useRef(null);
 
@@ -782,7 +782,7 @@ function ExerciseCard({ exercise, exLog, setExLog, lastSets, allTimeMax }) {
               </button>
             </div>
           )}
-          <RestTimer />
+          <RestTimer key={exercise.id} defaultTarget={parseInt(exercise.rest) || 90} />
           {/* Warmup row */}
           <div style={{marginBottom:12}}>
             <p style={{fontSize:10, color:C.orange, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6, margin:"0 0 6px 0"}}>🔥 Calentamiento</p>
@@ -1160,6 +1160,20 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
   function updateExercise(exId, field, val) {
     setPrograms(prev=>prev.map(p=>p.id===configProg.id?{...p,days:p.days.map(d=>d.id===activeDay.id?{...d,exercises:d.exercises.map(e=>e.id===exId?{...e,[field]:val}:e)}:d)}:p));
   }
+  function moveDay(fromIdx, dir) {
+    const toIdx = fromIdx + dir;
+    if (toIdx < 0 || toIdx >= plan.length) return;
+    const newDays = [...plan];
+    [newDays[fromIdx], newDays[toIdx]] = [newDays[toIdx], newDays[fromIdx]];
+    setPrograms(prev=>prev.map(p=>p.id===configProg.id?{...p,days:newDays}:p));
+  }
+  function moveExercise(fromIdx, dir) {
+    const toIdx = fromIdx + dir;
+    if (toIdx < 0 || toIdx >= activeDay.exercises.length) return;
+    const newExs = [...activeDay.exercises];
+    [newExs[fromIdx], newExs[toIdx]] = [newExs[toIdx], newExs[fromIdx]];
+    setPrograms(prev=>prev.map(p=>p.id===configProg.id?{...p,days:p.days.map(d=>d.id===activeDay.id?{...d,exercises:newExs}:d)}:p));
+  }
 
   return (
     <div>
@@ -1211,11 +1225,17 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
           <div style={cs.section}>
             <p style={cs.title}>Sesiones del plan</p>
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
-              {plan.map(d => (
+              {plan.map((d, idx) => (
                 <div key={d.id} onClick={()=>setConfigDayId(d.id)}
                   style={{...sty.sessionItem,...((configDayId===d.id||(configDayId===null&&plan[0]?.id===d.id))?sty.sessionItemActive:{})}}>
-                  <span style={{background:C.accent,color:"#fff",fontWeight:800,fontSize:11,padding:"2px 9px",borderRadius:7,minWidth:24,textAlign:"center"}}>{d.id}</span>
+                  <span style={{background:C.accent,color:"#fff",fontWeight:800,fontSize:11,padding:"2px 9px",borderRadius:7,minWidth:24,textAlign:"center"}}>{idx+1}</span>
                   <span style={{flex:1,fontSize:13,fontWeight:600}}>{d.name}</span>
+                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                    <button onClick={e=>{e.stopPropagation();moveDay(idx,-1);}} disabled={idx===0}
+                      style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,color:idx===0?C.border:C.accent,fontFamily:"inherit",fontSize:9,fontWeight:800,padding:"1px 6px",cursor:idx===0?"default":"pointer",lineHeight:1}}>▲</button>
+                    <button onClick={e=>{e.stopPropagation();moveDay(idx,1);}} disabled={idx===plan.length-1}
+                      style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,color:idx===plan.length-1?C.border:C.accent,fontFamily:"inherit",fontSize:9,fontWeight:800,padding:"1px 6px",cursor:idx===plan.length-1?"default":"pointer",lineHeight:1}}>▼</button>
+                  </div>
                   {plan.length>1 && <button style={sty.removeBtn} onClick={e=>{e.stopPropagation();removeDay(d.id);}}>✕</button>}
                 </div>
               ))}
@@ -1234,9 +1254,15 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
                   style={{background:"none",border:"none",borderBottom:`2px solid ${C.accent}`,color:C.accent,fontFamily:"inherit",fontSize:13,fontWeight:800,padding:"2px 4px",outline:"none"}} />
               </p>
               {activeDay.exercises.length===0 && <p style={{color:C.muted,fontSize:12,marginBottom:7,fontWeight:600}}>Sin ejercicios todavía.</p>}
-              {activeDay.exercises.map(ex => (
+              {activeDay.exercises.map((ex, idx) => (
                 <div key={ex.id} style={{marginBottom:10, paddingBottom:8, borderBottom:`1px dashed ${C.border}`}}>
                   <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:1,flexShrink:0}}>
+                      <button onClick={()=>moveExercise(idx,-1)} disabled={idx===0}
+                        style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,color:idx===0?C.border:C.accent,fontFamily:"inherit",fontSize:9,fontWeight:800,padding:"1px 6px",cursor:idx===0?"default":"pointer",lineHeight:1}}>▲</button>
+                      <button onClick={()=>moveExercise(idx,1)} disabled={idx===activeDay.exercises.length-1}
+                        style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,color:idx===activeDay.exercises.length-1?C.border:C.accent,fontFamily:"inherit",fontSize:9,fontWeight:800,padding:"1px 6px",cursor:idx===activeDay.exercises.length-1?"default":"pointer",lineHeight:1}}>▼</button>
+                    </div>
                     <input value={ex.name} style={{...sty.input,flex:3}} onChange={e=>updateExercise(ex.id,"name",e.target.value)} />
                     <input type="number" min="1" value={ex.sets} title="Series"
                       style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"sets",parseInt(e.target.value))} />
@@ -1246,9 +1272,25 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
                       style={{...sty.input,flex:1,textAlign:"center"}} onChange={e=>updateExercise(ex.id,"rir",e.target.value)} />
                     <button onClick={()=>removeExercise(ex.id)} style={sty.removeBtn}>✕</button>
                   </div>
-                  <input value={ex.tip||""} placeholder="💡 Recordatorio técnico (opcional)…"
-                    style={{...sty.input, fontSize:12, fontWeight:500}}
-                    onChange={e=>updateExercise(ex.id,"tip",e.target.value)} />
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <select value={ex.rest||""} onChange={e=>updateExercise(ex.id,"rest",e.target.value)}
+                      title="Tiempo de descanso entre series"
+                      style={{...sty.input, flex:"0 0 110px", fontSize:12, cursor:"pointer", fontWeight:600}}>
+                      <option value="">⏱ Descanso</option>
+                      <option value="30">⏱ 30s</option>
+                      <option value="45">⏱ 45s</option>
+                      <option value="60">⏱ 1min</option>
+                      <option value="90">⏱ 1:30</option>
+                      <option value="120">⏱ 2min</option>
+                      <option value="150">⏱ 2:30</option>
+                      <option value="180">⏱ 3min</option>
+                      <option value="240">⏱ 4min</option>
+                      <option value="300">⏱ 5min</option>
+                    </select>
+                    <input value={ex.tip||""} placeholder="💡 Recordatorio técnico (opcional)…"
+                      style={{...sty.input, flex:1, fontSize:12, fontWeight:500}}
+                      onChange={e=>updateExercise(ex.id,"tip",e.target.value)} />
+                  </div>
                 </div>
               ))}
               <div style={{display:"flex",gap:6,marginTop:8}}>
