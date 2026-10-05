@@ -639,43 +639,129 @@ function RestCard({ restLog, saveLog }) {
 }
 
 function RestTimer({ defaultTarget = 90 }) {
-  const [seconds, setSeconds] = useState(0);
   const [running, setRunning] = useState(false);
   const [target, setTarget] = useState(defaultTarget);
+  const [startTs, setStartTs] = useState(null);   // when currently-running run began
+  const [baseSec, setBaseSec] = useState(0);      // accumulated seconds from previous runs
+  const [, setTick] = useState(0);                // forces re-render
   const intervalRef = useRef(null);
-  const audioRef = useRef(null);
+  const wakeLockRef = useRef(null);
+  const alertedRef = useRef(false);
 
+  // Timestamp-based: survives background throttling
+  const seconds = running && startTs
+    ? baseSec + Math.floor((Date.now() - startTs) / 1000)
+    : baseSec;
+
+  function playBeep() {
+    try {
+      const ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const beep = (freq, start, dur) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, ctx.currentTime + start);
+        gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + start + 0.03);
+        gain.gain.setValueAtTime(0.6, ctx.currentTime + start + dur - 0.05);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      };
+      beep(880, 0, 0.35);
+      beep(880, 0.45, 0.35);
+      beep(1174, 0.9, 0.6);
+      setTimeout(() => ctx.close(), 2000);
+      if (navigator.vibrate) navigator.vibrate([300,120,300,120,500]);
+    } catch(e) {}
+  }
+
+  // Request wake lock while running (keeps screen on)
+  async function requestWakeLock() {
+    try {
+      if ("wakeLock" in navigator && !wakeLockRef.current) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+        wakeLockRef.current.addEventListener("release", () => {
+          wakeLockRef.current = null;
+        });
+      }
+    } catch(e) {}
+  }
+  function releaseWakeLock() {
+    if (wakeLockRef.current) {
+      try { wakeLockRef.current.release(); } catch(e) {}
+      wakeLockRef.current = null;
+    }
+  }
+
+  // Main tick loop + wake lock + alert
   useEffect(() => {
     if (running) {
+      requestWakeLock();
       intervalRef.current = setInterval(() => {
-        setSeconds(s => {
-          const next = s + 1;
-          if (next === target) {
-            // beep
-            try {
-              const ctx = new (window.AudioContext||window.webkitAudioContext)();
-              const osc = ctx.createOscillator();
-              const gain = ctx.createGain();
-              osc.connect(gain); gain.connect(ctx.destination);
-              osc.frequency.value = 880; gain.gain.value = 0.3;
-              osc.start(); 
-              setTimeout(()=>{osc.stop();ctx.close();}, 400);
-              if (navigator.vibrate) navigator.vibrate([200,100,200]);
-            } catch(e) {}
+        setTick(t => t + 1);
+        if (startTs) {
+          const curSec = baseSec + Math.floor((Date.now() - startTs) / 1000);
+          if (curSec >= target && !alertedRef.current) {
+            alertedRef.current = true;
+            playBeep();
           }
-          return next;
-        });
-      }, 1000);
+        }
+      }, 500);
     } else {
+      releaseWakeLock();
       clearInterval(intervalRef.current);
     }
     return () => clearInterval(intervalRef.current);
-  }, [running, target]);
+  }, [running, startTs, baseSec, target]);
 
-  function start() { setSeconds(0); setRunning(true); }
-  function pause() { setRunning(false); }
-  function resume() { setRunning(true); }
-  function reset() { setRunning(false); setSeconds(0); }
+  // Re-check when the app comes back to foreground
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        if (running) {
+          requestWakeLock();
+          // Fire alert if we crossed target while hidden
+          if (startTs) {
+            const curSec = baseSec + Math.floor((Date.now() - startTs) / 1000);
+            if (curSec >= target && !alertedRef.current) {
+              alertedRef.current = true;
+              playBeep();
+            }
+          }
+          setTick(t => t + 1);
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [running, startTs, baseSec, target]);
+
+  // Cleanup wake lock on unmount
+  useEffect(() => () => releaseWakeLock(), []);
+
+  function start() {
+    alertedRef.current = false;
+    setBaseSec(0);
+    setStartTs(Date.now());
+    setRunning(true);
+  }
+  function pause() {
+    if (startTs) setBaseSec(baseSec + Math.floor((Date.now() - startTs) / 1000));
+    setStartTs(null);
+    setRunning(false);
+  }
+  function resume() {
+    setStartTs(Date.now());
+    setRunning(true);
+  }
+  function reset() {
+    setRunning(false);
+    setStartTs(null);
+    setBaseSec(0);
+    alertedRef.current = false;
+  }
 
   const mm = String(Math.floor(seconds/60)).padStart(2,"0");
   const ss = String(seconds%60).padStart(2,"0");
