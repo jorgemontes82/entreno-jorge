@@ -137,14 +137,26 @@ function buildExHistory(logs) {
   });
   return result;
 }
-function logVolume(log) {
-  return Object.values(log.exercises||{}).reduce((total, ex) => {
-    return total + (ex.sets||[]).reduce((s, set) => {
+function logVolume(log, perSideMap) {
+  return Object.entries(log.exercises||{}).reduce((total, [exId, ex]) => {
+    const mult = (perSideMap && perSideMap[exId]) ? 2 : 1;
+    let vol = (ex.sets||[]).reduce((s, set) => {
       const kg = parseFloat(set.kg) || 0;
       const reps = parseFloat(set.reps) || 0;
       return s + kg * reps;
     }, 0);
+    const wKg = parseFloat(ex.warmupKg) || 0;
+    const wReps = parseFloat(ex.warmupReps) || 0;
+    vol += wKg * wReps;
+    return total + vol * mult;
   }, 0);
+}
+function buildPerSideMap(programs) {
+  const m = {};
+  programs.forEach(p => (p.days||[]).forEach(d => d.exercises.forEach(e => {
+    if (e.perSide) m[e.id] = true;
+  })));
+  return m;
 }
 
 function useSupabaseData(session) {
@@ -571,12 +583,17 @@ function TodayView({ plan, activeDayId, setActiveDayId, dateKey, todayLog, saveL
   // Total volume
   const totalVolume = activeDay?.exercises.reduce((total, ex) => {
     const log = exerciseLogs[ex.id];
-    if (!log?.sets) return total;
-    return total + log.sets.reduce((s, set) => {
+    if (!log) return total;
+    const mult = ex.perSide ? 2 : 1;
+    let vol = (log.sets||[]).reduce((s, set) => {
       const kg = parseFloat(set.kg) || 0;
       const reps = parseFloat(set.reps) || 0;
       return s + kg * reps;
     }, 0);
+    const wKg = parseFloat(log.warmupKg) || 0;
+    const wReps = parseFloat(log.warmupReps) || 0;
+    vol += wKg * wReps;
+    return total + vol * mult;
   }, 0) || 0;
 
   return (
@@ -839,7 +856,7 @@ function ExerciseCard({ exercise, exLog, setExLog, lastSets, allTimeMax }) {
         <div style={{display:"flex", alignItems:"center", flexWrap:"wrap", gap:4}}>
           <span style={{fontSize:14, fontWeight:700}}>{exercise.name}</span>
           <span style={{fontSize:10, color:C.accent, background:C.accentL, padding:"2px 7px", borderRadius:20, fontWeight:700}}>
-            {exercise.sets}×{exercise.reps}{exercise.rir ? ` · RIR ${exercise.rir}` : ""}
+            {exercise.sets}×{exercise.reps}{exercise.rir ? ` · RIR ${exercise.rir}` : ""}{exercise.perSide ? " · ×2" : ""}
           </span>
           {lastMax > 0 && !done && (
             <span style={{fontSize:10, color:C.teal, background:C.tealL, padding:"2px 7px", borderRadius:20, fontWeight:700}}>↑ {lastMax}kg</span>
@@ -1003,6 +1020,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
 
   const exMap = buildExMap(programs);
   const progMap = buildProgMap(programs);
+  const perSideMap = buildPerSideMap(programs);
   const filtered = filterProgId==="all" ? sorted : sorted.filter(d => logs[d]?.progId===filterProgId);
   const histLogs = filterProgId==="all" ? logs : Object.fromEntries(Object.entries(logs).filter(([,l])=>l.progId===filterProgId));
   const exHistory = buildExHistory(histLogs);
@@ -1048,7 +1066,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
             {filtered.map(d => {
               const exDone = Object.values(logs[d]?.exercises||{}).filter(e=>e.sets?.some(s=>s.kg!=="")).length;
               const pName = progMap[logs[d]?.progId];
-              const vol = logVolume(logs[d]);
+              const vol = logVolume(logs[d], perSideMap);
               return (
                 <button key={d} onClick={()=>setSel(d)} style={{...sty.histItem,...(sel===d?sty.histItemActive:{})}}>
                   <div>
@@ -1065,7 +1083,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
               );
             })}
           </div>
-          <div>{sel && logs[sel] && <LogDetail dateKey={sel} log={logs[sel]} exMap={exMap} progMap={progMap} />}</div>
+          <div>{sel && logs[sel] && <LogDetail dateKey={sel} log={logs[sel]} exMap={exMap} progMap={progMap} perSideMap={perSideMap} />}</div>
         </div>
       )}
       {tab==="charts" && (
@@ -1101,15 +1119,15 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
         </div>
       )}
       {tab==="wellness" && <WellnessView logs={histLogs} sorted={filtered} />}
-      {tab==="volume" && <VolumeView logs={histLogs} sorted={filtered} />}
+      {tab==="volume" && <VolumeView logs={histLogs} sorted={filtered} perSideMap={perSideMap} />}
     </div>
   );
 }
 
-function LogDetail({ dateKey, log, exMap, progMap }) {
+function LogDetail({ dateKey, log, exMap, progMap, perSideMap }) {
   const rest = log.rest;
   const pName = progMap[log.progId];
-  const totalVolume = logVolume(log);
+  const totalVolume = logVolume(log, perSideMap);
   return (
     <div>
       <h3 style={{fontSize:14,fontWeight:800,color:C.accent,marginBottom:10,textTransform:"capitalize"}}>
@@ -1235,7 +1253,7 @@ function VolumeBarChart({ data }) {
   );
 }
 
-function VolumeView({ logs, sorted }) {
+function VolumeView({ logs, sorted, perSideMap }) {
   const [period, setPeriod] = useState("month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -1259,21 +1277,26 @@ function VolumeView({ logs, sorted }) {
   }
 
   const filteredDates = sorted.filter(inPeriod);
-  const totalVol = filteredDates.reduce((sum, d) => sum + logVolume(logs[d]), 0);
+  const totalVol = filteredDates.reduce((sum, d) => sum + logVolume(logs[d], perSideMap), 0);
   const avgVol = filteredDates.length ? totalVol / filteredDates.length : 0;
   const sessionData = [...filteredDates].reverse().map(d => ({
-    date: d, kg: logVolume(logs[d])
+    date: d, kg: logVolume(logs[d], perSideMap)
   })).filter(s => s.kg > 0);
 
   // Breakdown by exercise
   const exerciseVols = {};
   filteredDates.forEach(d => {
     Object.entries(logs[d]?.exercises||{}).forEach(([exId, exLog]) => {
-      const vol = (exLog.sets||[]).reduce((s, set) => {
+      const mult = (perSideMap && perSideMap[exId]) ? 2 : 1;
+      let vol = (exLog.sets||[]).reduce((s, set) => {
         const kg = parseFloat(set.kg) || 0;
         const reps = parseFloat(set.reps) || 0;
         return s + kg * reps;
       }, 0);
+      const wKg = parseFloat(exLog.warmupKg) || 0;
+      const wReps = parseFloat(exLog.warmupReps) || 0;
+      vol += wKg * wReps;
+      vol *= mult;
       if (vol > 0) exerciseVols[exId] = (exerciseVols[exId] || 0) + vol;
     });
   });
@@ -1342,7 +1365,7 @@ function VolumeView({ logs, sorted }) {
           <p style={{fontSize:13, fontWeight:700, marginBottom:7}}>Detalle por sesión</p>
           <div style={{display:"flex", flexDirection:"column", gap:3}}>
             {filteredDates.map(d => {
-              const vol = logVolume(logs[d]);
+              const vol = logVolume(logs[d], perSideMap);
               if (vol === 0) return null;
               return (
                 <div key={d} style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderBottom:`1px solid ${C.border}`, fontSize:12}}>
@@ -1564,6 +1587,11 @@ function ConfigView({ programs, setPrograms, activeProgId, setActiveProgId, upda
                       <option value="240">⏱ 4min</option>
                       <option value="300">⏱ 5min</option>
                     </select>
+                    <button onClick={()=>updateExercise(ex.id,"perSide",!ex.perSide)}
+                      title="Peso × 2 (ejercicio unilateral: por brazo / pierna)"
+                      style={{background: ex.perSide ? C.accent : C.bg, color: ex.perSide ? "#fff" : C.muted, border:`1.5px solid ${ex.perSide ? C.accent : C.border}`, borderRadius:9, fontFamily:"inherit", fontSize:12, fontWeight:800, padding:"8px 10px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap"}}>
+                      ×2
+                    </button>
                     <input value={ex.tip||""} placeholder="💡 Recordatorio técnico (opcional)…"
                       style={{...sty.input, flex:1, fontSize:12, fontWeight:500}}
                       onChange={e=>updateExercise(ex.id,"tip",e.target.value)} />
