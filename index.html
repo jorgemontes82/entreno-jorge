@@ -137,6 +137,15 @@ function buildExHistory(logs) {
   });
   return result;
 }
+function logVolume(log) {
+  return Object.values(log.exercises||{}).reduce((total, ex) => {
+    return total + (ex.sets||[]).reduce((s, set) => {
+      const kg = parseFloat(set.kg) || 0;
+      const reps = parseFloat(set.reps) || 0;
+      return s + kg * reps;
+    }, 0);
+  }, 0);
+}
 
 function useSupabaseData(session) {
   const [programs, setProgramsState] = useState([]);
@@ -1039,6 +1048,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
             {filtered.map(d => {
               const exDone = Object.values(logs[d]?.exercises||{}).filter(e=>e.sets?.some(s=>s.kg!=="")).length;
               const pName = progMap[logs[d]?.progId];
+              const vol = logVolume(logs[d]);
               return (
                 <button key={d} onClick={()=>setSel(d)} style={{...sty.histItem,...(sel===d?sty.histItemActive:{})}}>
                   <div>
@@ -1047,7 +1057,10 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
                     </div>
                     {pName && <div style={{fontSize:10,color:C.accent,fontWeight:700,marginTop:2}}>{pName}</div>}
                   </div>
-                  <span style={{fontSize:11,color:C.teal,background:C.tealL,padding:"3px 9px",borderRadius:20,fontWeight:700,flexShrink:0,marginLeft:8}}>{exDone} ej.</span>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0,marginLeft:8}}>
+                    <span style={{fontSize:11,color:C.teal,background:C.tealL,padding:"3px 9px",borderRadius:20,fontWeight:700}}>{exDone} ej.</span>
+                    {vol > 0 && <span style={{fontSize:10,color:C.accent,fontWeight:700}}>{vol.toLocaleString("es-ES")} kg</span>}
+                  </div>
                 </button>
               );
             })}
@@ -1095,12 +1108,19 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
 function LogDetail({ dateKey, log, exMap, progMap }) {
   const rest = log.rest;
   const pName = progMap[log.progId];
+  const totalVolume = logVolume(log);
   return (
     <div>
       <h3 style={{fontSize:14,fontWeight:800,color:C.accent,marginBottom:10,textTransform:"capitalize"}}>
         {new Date(dateKey+"T12:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
       </h3>
       {pName && <div style={{fontSize:11,color:C.accent,fontWeight:700,background:C.accentL,display:"inline-block",padding:"3px 10px",borderRadius:20,marginBottom:12}}>📋 {pName}</div>}
+      {totalVolume > 0 && (
+        <div style={{background:"linear-gradient(135deg,#e0edff,#f0f6ff)", border:`1.5px solid ${C.accent}`, borderRadius:12, padding:"10px 14px", marginBottom:10, textAlign:"center"}}>
+          <p style={{fontSize:10, color:C.muted, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", margin:"0 0 3px 0"}}>📊 Volumen total</p>
+          <p style={{fontSize:18, fontWeight:800, color:C.accent, margin:0}}>{totalVolume.toLocaleString("es-ES")} kg</p>
+        </div>
+      )}
       {rest && (
         <div style={sty.detailCard}>
           <p style={{fontSize:13,fontWeight:700,marginBottom:7}}>🛌 Descanso</p>
