@@ -1030,7 +1030,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
         </div>
       </div>
       <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:12}}>
-        {[{id:"log",label:"📅 Sesiones"},{id:"charts",label:"📈 Evolución"},{id:"wellness",label:"🛌 Bienestar"}].map(t => (
+        {[{id:"log",label:"📅 Sesiones"},{id:"charts",label:"📈 Evolución"},{id:"wellness",label:"🛌 Bienestar"},{id:"volume",label:"⚖️ Peso"}].map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)} style={{...sty.tabBtn,...(tab===t.id?sty.tabBtnActive:{})}}>
             {t.label}
           </button>
@@ -1101,6 +1101,7 @@ function HistoryView({ logs, programs, setLogs, setPrograms }) {
         </div>
       )}
       {tab==="wellness" && <WellnessView logs={histLogs} sorted={filtered} />}
+      {tab==="volume" && <VolumeView logs={histLogs} sorted={filtered} />}
     </div>
   );
 }
@@ -1196,6 +1197,176 @@ function WellnessView({ logs, sorted }) {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+function VolumeBarChart({ data }) {
+  if (data.length < 1) return null;
+  const W=280,H=90,PL=8,PR=8,PT=8,PB=22;
+  const iW=W-PL-PR, iH=H-PT-PB;
+  const maxKg = Math.max(...data.map(d => d.kg), 1);
+  const barWidth = iW / data.length;
+  const barGap = Math.max(1, barWidth * 0.15);
+  const actualBarWidth = Math.max(1, barWidth - barGap);
+  const nLabels = Math.min(data.length, 4);
+  const xIdx = Array.from({length:nLabels}, (_,i) => Math.round(i*(data.length-1)/(nLabels-1||1)));
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block",marginTop:6}}>
+      {data.map((d, i) => {
+        const h = (d.kg / maxKg) * iH;
+        return (
+          <rect key={i}
+            x={PL + i*barWidth + barGap/2}
+            y={PT + iH - h}
+            width={actualBarWidth}
+            height={h}
+            fill={C.accent}
+            rx={1.5}
+          />
+        );
+      })}
+      {xIdx.map(i => (
+        <text key={i} x={PL + i*barWidth + barWidth/2} y={H-4} textAnchor="middle" fontSize="8" fill={C.muted}>
+          {new Date(data[i].date+"T12:00:00").toLocaleDateString("es-ES", {day:"numeric", month:"short"})}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function VolumeView({ logs, sorted }) {
+  const [period, setPeriod] = useState("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
+  const today = new Date();
+  today.setHours(23,59,59,999);
+
+  function inPeriod(dateStr) {
+    const d = new Date(dateStr + "T12:00:00");
+    if (period === "all") return true;
+    if (period === "custom") {
+      if (customFrom && d < new Date(customFrom + "T00:00:00")) return false;
+      if (customTo && d > new Date(customTo + "T23:59:59")) return false;
+      return true;
+    }
+    const diffDays = (today - d) / (1000*60*60*24);
+    if (period === "week") return diffDays <= 7;
+    if (period === "month") return diffDays <= 30;
+    if (period === "year") return diffDays <= 365;
+    return true;
+  }
+
+  const filteredDates = sorted.filter(inPeriod);
+  const totalVol = filteredDates.reduce((sum, d) => sum + logVolume(logs[d]), 0);
+  const avgVol = filteredDates.length ? totalVol / filteredDates.length : 0;
+  const sessionData = [...filteredDates].reverse().map(d => ({
+    date: d, kg: logVolume(logs[d])
+  })).filter(s => s.kg > 0);
+
+  // Breakdown by exercise
+  const exerciseVols = {};
+  filteredDates.forEach(d => {
+    Object.entries(logs[d]?.exercises||{}).forEach(([exId, exLog]) => {
+      const vol = (exLog.sets||[]).reduce((s, set) => {
+        const kg = parseFloat(set.kg) || 0;
+        const reps = parseFloat(set.reps) || 0;
+        return s + kg * reps;
+      }, 0);
+      if (vol > 0) exerciseVols[exId] = (exerciseVols[exId] || 0) + vol;
+    });
+  });
+
+  const periods = [
+    {id:"week", label:"Semana"},
+    {id:"month", label:"Mes"},
+    {id:"year", label:"Año"},
+    {id:"all", label:"Todo"},
+    {id:"custom", label:"Fechas"},
+  ];
+
+  return (
+    <div>
+      <div style={{display:"flex", gap:5, flexWrap:"wrap", marginBottom:12}}>
+        {periods.map(p => (
+          <button key={p.id} onClick={()=>setPeriod(p.id)}
+            style={{...sty.tabBtn, ...(period===p.id?sty.tabBtnActive:{})}}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {period === "custom" && (
+        <div style={{display:"flex", gap:6, marginBottom:12, flexWrap:"wrap"}}>
+          <div style={{flex:1, minWidth:140}}>
+            <p style={{fontSize:10, color:C.muted, fontWeight:700, textTransform:"uppercase", marginBottom:4}}>Desde</p>
+            <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
+              style={{...sty.input, cursor:"pointer"}} />
+          </div>
+          <div style={{flex:1, minWidth:140}}>
+            <p style={{fontSize:10, color:C.muted, fontWeight:700, textTransform:"uppercase", marginBottom:4}}>Hasta</p>
+            <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
+              style={{...sty.input, cursor:"pointer"}} />
+          </div>
+        </div>
+      )}
+
+      <div style={{background:"linear-gradient(135deg,#e0edff,#f0f6ff)", border:`1.5px solid ${C.accent}`, borderRadius:14, padding:"18px 16px", marginBottom:10, textAlign:"center"}}>
+        <p style={{fontSize:10, color:C.muted, fontWeight:800, letterSpacing:"0.1em", textTransform:"uppercase", margin:"0 0 6px 0"}}>⚖️ Peso total levantado</p>
+        <p style={{fontSize:30, fontWeight:800, color:C.accent, margin:0, lineHeight:1.1}}>{totalVol.toLocaleString("es-ES")} kg</p>
+      </div>
+
+      {filteredDates.length > 0 && (
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10}}>
+          <div style={{...sty.detailCard, marginBottom:0, textAlign:"center"}}>
+            <p style={{fontSize:10, color:C.muted, fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em", margin:"0 0 3px"}}>Sesiones</p>
+            <p style={{fontSize:18, fontWeight:800, color:C.text, margin:0}}>{filteredDates.length}</p>
+          </div>
+          <div style={{...sty.detailCard, marginBottom:0, textAlign:"center"}}>
+            <p style={{fontSize:10, color:C.muted, fontWeight:800, textTransform:"uppercase", letterSpacing:"0.08em", margin:"0 0 3px"}}>Media/sesión</p>
+            <p style={{fontSize:18, fontWeight:800, color:C.text, margin:0}}>{Math.round(avgVol).toLocaleString("es-ES")} kg</p>
+          </div>
+        </div>
+      )}
+
+      {sessionData.length >= 2 && (
+        <div style={sty.detailCard}>
+          <p style={{fontSize:13, fontWeight:700, marginBottom:3}}>Volumen por sesión</p>
+          <VolumeBarChart data={sessionData} />
+        </div>
+      )}
+
+      {filteredDates.length > 0 && (
+        <div style={sty.detailCard}>
+          <p style={{fontSize:13, fontWeight:700, marginBottom:7}}>Detalle por sesión</p>
+          <div style={{display:"flex", flexDirection:"column", gap:3}}>
+            {filteredDates.map(d => {
+              const vol = logVolume(logs[d]);
+              if (vol === 0) return null;
+              return (
+                <div key={d} style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0", borderBottom:`1px solid ${C.border}`, fontSize:12}}>
+                  <span style={{color:C.text, fontWeight:600, textTransform:"capitalize"}}>
+                    {new Date(d+"T12:00:00").toLocaleDateString("es-ES", {weekday:"short", day:"numeric", month:"short"})}
+                  </span>
+                  <span style={{color:C.accent, fontWeight:800}}>{vol.toLocaleString("es-ES")} kg</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {filteredDates.length === 0 && (
+        <div style={{textAlign:"center", padding:30}}>
+          <p style={{fontSize:36, margin:0}}>⚖️</p>
+          <p style={{color:C.muted, fontSize:14, fontWeight:600, marginTop:8}}>
+            {period==="custom" && !customFrom && !customTo
+              ? "Selecciona un rango de fechas."
+              : "Sin sesiones en el periodo seleccionado."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
